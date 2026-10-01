@@ -11,10 +11,42 @@ class CompanyCandidate:
     activities: str | None = None
     phone: str | None = None
     governorate: str | None = None
+    scopes: tuple[str, ...] = ()
 
     @property
     def identity(self) -> str:
         return self.source_id or self.detail_url
+
+
+@dataclass(frozen=True)
+class SearchScope:
+    code: str
+    label: str
+
+    @property
+    def criteria(self) -> dict[str, str]:
+        return {"secteur": self.code, "action": "search"}
+
+
+@dataclass(frozen=True)
+class SearchForm:
+    url: str
+    method: str
+    action: str
+    hidden_fields: dict[str, str]
+    controls: dict[str, tuple[tuple[str, str], ...]]
+    scopes: tuple[SearchScope, ...]
+    has_all_scope: bool
+
+
+@dataclass(frozen=True)
+class DiscoveryPage:
+    candidates: tuple[CompanyCandidate, ...]
+    page_number: int | None
+    total_pages: int | None
+    result_count: int | None
+    next_url: str | None
+    page_size: int
 
 
 @dataclass
@@ -50,4 +82,3 @@ class ScrapeStats:
     exported: int = 0
     failed: int = 0
     failures: list[str] = field(default_factory=list)
-

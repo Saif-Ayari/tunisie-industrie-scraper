@@ -10,9 +10,9 @@ from requests import Response
 from urllib3.exceptions import InsecureRequestWarning
 
 from config import ScraperConfig
-from models import CompanyCandidate
+from models import CompanyCandidate, SearchForm, SearchScope
 from normalizer import canonical_source_url
-from parser import decode_html, deduplicate_candidates, next_page_url, parse_discovery_page, parse_share_capital
+from parser import decode_html, deduplicate_candidates, next_page_url, parse_discovery_page, parse_search_form, parse_share_capital
 
 
 LOGGER = logging.getLogger(__name__)
@@ -72,6 +72,11 @@ class TunisieIndustrieClient:
     def get_directory(self) -> Response:
         return self.request("GET", self.config.directory_url)
 
+    def fetch_search_form(self) -> SearchForm:
+        response = self.get_directory()
+        html = decode_html(response.content, response.headers.get("Content-Type"))
+        return parse_search_form(html, response.url)
+
     def search(self, criteria: dict[str, str]) -> Response:
         return self.request(
             "POST",
@@ -79,6 +84,13 @@ class TunisieIndustrieClient:
             data=criteria,
             headers={"Referer": self.config.directory_url},
         )
+
+    def search_scope_page(self, scope: SearchScope, page_number: int = 1) -> Response:
+        initial = self.search(scope.criteria)
+        if page_number <= 1:
+            return initial
+        page_url = urljoin(self.config.directory_url, f"?action=search&pagenum={page_number}")
+        return self.request("GET", page_url, headers={"Referer": initial.url})
 
     def fetch_same_record_french_share_capital(self, source_id: str) -> str | None:
         """Read the same public record's French representation for one field."""

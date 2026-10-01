@@ -69,7 +69,12 @@ def export_records(records: Iterable[CompanyRecord], output_path: Path) -> None:
     worksheet = workbook.active
     worksheet.title = "Companies"
     worksheet.append(list(HEADERS))
+    seen_ids: set[str] = set()
     for record in records:
+        if record.source_id:
+            if record.source_id in seen_ids:
+                raise ValueError(f"Duplicate Source ID would be exported: {record.source_id}")
+            seen_ids.add(record.source_id)
         worksheet.append([safe_excel_text(getattr(record, attr)) for attr in RECORD_ATTRIBUTES])
     worksheet.freeze_panes = "A2"
     worksheet.auto_filter.ref = f"A1:{get_column_letter(len(HEADERS))}{worksheet.max_row}"
@@ -108,4 +113,3 @@ def verify_workbook(output_path: Path, expected_records: int) -> dict[str, objec
         "freeze_panes": worksheet.freeze_panes,
         "autofilter": worksheet.auto_filter.ref,
     }
-

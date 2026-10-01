@@ -94,3 +94,46 @@ The workbook has one `Companies` worksheet, a frozen first row, an autofilter, d
 Phase 1 intentionally stops after the requested small sample. It does not implement full-directory checkpointing, incremental runs, raw snapshots, or CRM-specific transformation. Before scaling, the search criteria and pagination behavior should be revalidated, the TLS certificate should be renewed, and a checkpoint/resume strategy should be added.
 
 Generated XLSX files are ignored by Git; `output/.gitkeep` keeps the directory available without committing company data.
+
+## Phase 2 full-directory architecture
+
+Phase 2 adds a safe architecture for a future complete crawl without making the normal `--limit 10` command large. The scraper reads the live `dbiform` search form and discovers the nine sector scopes currently exposed by the source, in the source's own order:
+
+`05`, `03`, `01`, `08`, `04`, `02`, `07`, `06`, `09`.
+
+The form also exposes `branche`, `produit`, `Denomination`, `Gouvernorat`, `delegation`, `pays`, `regime`, capital bounds, and employee bounds. There is no explicit all-sectors option; at least one criterion is required. Result pages report 30 rows per page and an authoritative count. During controlled inspection the sector counts were 980, 298, 561, 336, 510, 1,275, 134, 171, and 254, summing to 4,519.
+
+Discovery is separate from detail scraping. Every result page contributes a stable `ident` and detail URL to a deduplicated candidate set. A company appearing in more than one scope is retained once and its scopes are recorded.
+
+Checkpoint state is stored under an ignored directory such as `state/full/`:
+
+- `checkpoint.json` stores scopes, discovery progress, candidates, completed IDs, failures, timestamps, and duplicate counts.
+- `records.jsonl` stores each successfully parsed company immediately, so a long run does not keep the only copy in memory.
+
+Checkpoint JSON writes are atomic. `--resume` skips successful IDs, retries pending failures, and continues discovery from the last saved page. Failures remain in the checkpoint with Source ID, URL, error, attempts, and timestamp.
+
+Controlled Phase 2 discovery, one page per sector:
+
+```powershell
+python scraper.py --discover-only --max-pages 1 --state-dir state/controlled-discovery --insecure-tls
+```
+
+Controlled cross-sector sample, one company per sector:
+
+```powershell
+python scraper.py --sample-scopes --limit 1 --max-pages 1 --state-dir state/controlled-sample --insecure-tls
+```
+
+The complete crawl is deliberately explicit and was not executed during Phase 2 validation. A future initial full crawl would be:
+
+```powershell
+python scraper.py --full-crawl --state-dir state/full --insecure-tls
+```
+
+After interruption, resume it with:
+
+```powershell
+python scraper.py --full-crawl --resume --state-dir state/full --insecure-tls
+```
+
+These commands are potentially long-running and should only be started after reviewing the controlled results. `--max-pages` is useful for bounded validation; `--scope CODE` can restrict controlled Phase 2 runs to source-defined scope codes.

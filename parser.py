@@ -7,7 +7,7 @@ from urllib.parse import parse_qs, urljoin, urlsplit
 
 from bs4 import BeautifulSoup
 
-from models import CompanyCandidate, CompanyRecord
+from models import CompanyCandidate, CompanyRecord, DiscoveryPage, SearchForm, SearchScope
 
 
 class ParseError(ValueError):
@@ -107,6 +107,50 @@ def _label_key(value: str) -> str:
     return _clean_text(value).lower()
 
 
+def parse_search_form(html: str, page_url: str) -> SearchForm:
+    soup = BeautifulSoup(html, "html.parser")
+    form = soup.find("form", attrs={"name": "dbiform"})
+    if form is None:
+        raise ParseError(f"Directory search form not found at {page_url}")
+
+    hidden_fields: dict[str, str] = {}
+    controls: dict[str, tuple[tuple[str, str], ...]] = {}
+    for input_tag in form.find_all("input"):
+        name = input_tag.get("name")
+        if not name:
+            continue
+        input_type = input_tag.get("type", "text").lower()
+        if input_type == "hidden":
+            hidden_fields[name] = input_tag.get("value", "")
+        elif name not in controls:
+            controls[name] = ((input_tag.get("value", ""), input_type),)
+    for select in form.find_all("select"):
+        name = select.get("name")
+        if not name:
+            continue
+        options = []
+        for option in select.find_all("option"):
+            options.append((option.get("value", ""), _clean_text(option.get_text(" ", strip=True))))
+        controls[name] = tuple(options)
+
+    sector_options = controls.get("secteur", ())
+    scopes = tuple(SearchScope(code=value, label=label) for value, label in sector_options if value)
+    has_all_scope = any(
+        not value and label.lower() in {"all", "all sectors", "all activities"}
+        for value, label in sector_options
+    )
+    action = urljoin(page_url, form.get("action", ""))
+    return SearchForm(
+        url=page_url,
+        method=form.get("method", "GET").upper(),
+        action=action,
+        hidden_fields=hidden_fields,
+        controls=controls,
+        scopes=scopes,
+        has_all_scope=has_all_scope,
+    )
+
+
 def parse_discovery_page(html: str, page_url: str) -> list[CompanyCandidate]:
     soup = BeautifulSoup(html, "html.parser")
     candidates: list[CompanyCandidate] = []
@@ -131,6 +175,27 @@ def parse_discovery_page(html: str, page_url: str) -> list[CompanyCandidate]:
             )
         )
     return candidates
+
+
+def _parse_integer(value: str) -> int | None:
+    digits = re.sub(r"[^0-9]", "", value)
+    return int(digits) if digits else None
+
+
+def parse_result_page(html: str, page_url: str) -> DiscoveryPage:
+    soup = BeautifulSoup(html, "html.parser")
+    text = _clean_text(soup.get_text(" ", strip=True))
+    count_match = re.search(r"([0-9][0-9, .]*)\s+Record\(s\)Found", text, re.I)
+    page_match = re.search(r"Page\s+([0-9]+)\s+of\s+([0-9]+)", text, re.I)
+    candidates = tuple(parse_discovery_page(html, page_url))
+    return DiscoveryPage(
+        candidates=candidates,
+        page_number=int(page_match.group(1)) if page_match else None,
+        total_pages=int(page_match.group(2)) if page_match else None,
+        result_count=_parse_integer(count_match.group(1)) if count_match else None,
+        next_url=next_page_url(html, page_url),
+        page_size=len(candidates),
+    )
 
 
 def deduplicate_candidates(candidates: Iterable[CompanyCandidate]) -> list[CompanyCandidate]:
@@ -189,10 +254,10 @@ def parse_company_detail(html: str, source_url: str, source_id: str | None = Non
         if field:
             values[field] = _value_from_cell(cells[1], field, source_url)
 
-    if not values.get("short_name") and not values.get("company_name"):
-        raise ParseError(f"Company detail table has no identity at {source_url}")
     if source_id is None:
         source_id = parse_qs(urlsplit(source_url).query).get("ident", [None])[0]
+    if not values.get("short_name") and not values.get("company_name") and not source_id:
+        raise ParseError(f"Company detail table has no identity at {source_url}")
     return CompanyRecord(**values, source_id=source_id, source_url=source_url)
 
 
