@@ -9,6 +9,12 @@ from pathlib import Path
 
 from client import TunisieIndustrieClient
 from config import DEFAULT_OUTPUT_PATH, DEFAULT_SEARCH_SECTOR, MAX_PHASE1_LIMIT, ScraperConfig
+from crm.simple import (
+    SimpleExportError,
+    export_simple_records,
+    load_simple_template_schema,
+    verify_simple_workbook,
+)
 from discovery import DiscoveryRun, discover_to_checkpoint
 from exporter import export_records, verify_workbook
 from models import CompanyCandidate, CompanyRecord, ScrapeStats
@@ -18,6 +24,19 @@ from state import CheckpointStore, StateError
 
 
 LOGGER = logging.getLogger("tunisie_industrie_scraper")
+
+
+def export_simple_if_requested(records: list[CompanyRecord], args: argparse.Namespace) -> tuple[dict[str, object], dict[str, object]] | None:
+    if args.simple_template is None:
+        return None
+    try:
+        report = export_simple_records(records, args.simple_template, args.simple_output)
+        schema = load_simple_template_schema(args.simple_template)
+        summary = verify_simple_workbook(args.simple_output, schema, len(records))
+    except (SimpleExportError, AssertionError) as exc:
+        LOGGER.error("SIMPLE export failed: %s", exc)
+        raise
+    return report.as_dict(), summary
 
 
 def fetch_company_record(client: TunisieIndustrieClient, candidate: CompanyCandidate, scraped_at: str) -> CompanyRecord:
@@ -156,6 +175,10 @@ def run_checkpointed_mode(args: argparse.Namespace, client: TunisieIndustrieClie
         return 1
     export_records(records, args.output)
     workbook_summary = verify_workbook(args.output, len(records))
+    try:
+        simple_result = export_simple_if_requested(records, args)
+    except (SimpleExportError, AssertionError):
+        return 2
     elapsed = time.perf_counter() - started
     print(f"mode={mode}")
     print(f"search_scopes_discovered={len(discovery.form.scopes)}")
@@ -173,6 +196,11 @@ def run_checkpointed_mode(args: argparse.Namespace, client: TunisieIndustrieClie
     print(f"elapsed_seconds={elapsed:.2f}")
     print(f"output={args.output}")
     print(f"workbook_verification={workbook_summary}")
+    if simple_result is not None:
+        simple_report, simple_summary = simple_result
+        print(f"simple_output={args.simple_output}")
+        print(f"simple_validation={simple_report}")
+        print(f"simple_workbook_verification={simple_summary}")
     print(f"state_dir={args.state_dir}")
     return 0
 
@@ -190,6 +218,17 @@ def build_argument_parser() -> argparse.ArgumentParser:
     parser.add_argument("--reset-state", action="store_true", help="Explicitly reset the selected local state files")
     parser.add_argument("--state-dir", type=Path, default=Path("state") / "full", help="Checkpoint directory")
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT_PATH, help="XLSX output path")
+    parser.add_argument(
+        "--simple-template",
+        type=Path,
+        help="Canonical SIMPLE Companies XLSX export used as the CRM schema contract",
+    )
+    parser.add_argument(
+        "--simple-output",
+        type=Path,
+        default=Path("output") / "simple_companies.xlsx",
+        help="SIMPLE-compatible XLSX output path",
+    )
     parser.add_argument("--delay", type=float, default=1.0, help="Delay between requests in seconds")
     parser.add_argument("--retries", type=int, default=2, help="Bounded retries for transient failures")
     parser.add_argument("--timeout", type=float, default=30.0, help="Per-request timeout in seconds")
@@ -214,6 +253,8 @@ def main() -> int:
         parser.error("--full-crawl cannot be combined with --discover-only or --sample-scopes")
     if args.reset_state and args.resume:
         parser.error("--reset-state cannot be combined with --resume")
+    if args.simple_output != Path("output") / "simple_companies.xlsx" and args.simple_template is None:
+        parser.error("--simple-output requires --simple-template")
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     config = ScraperConfig(
@@ -248,6 +289,10 @@ def main() -> int:
         return 1
     export_records(records, args.output)
     workbook_summary = verify_workbook(args.output, len(records))
+    try:
+        simple_result = export_simple_if_requested(records, args)
+    except (SimpleExportError, AssertionError):
+        return 2
     elapsed = time.perf_counter() - started
     stats.exported = len(records)
     print(f"requested_limit={stats.requested_limit}")
@@ -259,6 +304,11 @@ def main() -> int:
     print(f"elapsed_seconds={elapsed:.2f}")
     print(f"output={args.output}")
     print(f"workbook_verification={workbook_summary}")
+    if simple_result is not None:
+        simple_report, simple_summary = simple_result
+        print(f"simple_output={args.simple_output}")
+        print(f"simple_validation={simple_report}")
+        print(f"simple_workbook_verification={simple_summary}")
     return 0
 
 

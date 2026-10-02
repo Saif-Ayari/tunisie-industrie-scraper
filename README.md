@@ -1,6 +1,6 @@
 # Tunisie Industrie scraper — Phase 1
 
-This repository contains a small, bounded scraper for the public Tunisie Industrie industrial-enterprise directory. Phase 1 collects a reviewable sample of real source records and writes a raw Excel workbook. It does not integrate with SIMPLE CRM, call any CRM API, enrich records, or perform a full-directory crawl.
+This repository contains a bounded scraper for the public Tunisie Industrie industrial-enterprise directory. Phase 1 collects a reviewable sample of real source records and writes a raw Excel workbook. Phase 3 can additionally transform that sample into a separate SIMPLE-compatible Companies workbook; it does not call a CRM API, enrich records, or perform a full-directory crawl.
 
 ## Source discovery
 
@@ -77,6 +77,18 @@ The flag is intentionally opt-in and should be removed after certificate renewal
 
 The workbook is written to `output/tunisie_industrie_raw.xlsx` by default. Use `--output` to select another path. `--sector` changes the source directory criterion; it does not turn Phase 1 into an unrestricted crawl.
 
+## Phase 3 SIMPLE export
+
+The raw workbook remains source-faithful and is never replaced by the CRM-ready workbook. Supply the untouched current SIMPLE Companies export as the schema contract:
+
+```powershell
+python scraper.py --limit 10 --insecure-tls --simple-template templates/company.xlsx
+```
+
+This writes `output/simple_companies.xlsx` with the exact header row and order read from the supplied template. The exporter maps the inspected SIMPLE compound fields semantically: address components use the source address, delegation, governorate, and an explicitly present four-digit postal code; Tunisian phones use `TN`, `+216`, and a primary number, while each additional phone is a newline-delimited international value such as `+21674 493 691 (TN)`; email and link fields use the importer-compatible newline or label/URL subcolumn formats; and all CRM-managed IDs, owners, actors, timestamps, and LinkedIn fields remain blank. Source IDs remain text, employee counts become numbers only when safely parseable, and Share Capital DT remains text with its source NBSP separators.
+
+The canonical export is local/ignored because it contains live CRM IDs, owner/creator values, and creation timestamps. `tests/fixtures/simple_company_schema.json` is the sanitized, header-only schema fixture used by the tests.
+
 ## Tests
 
 Tests use small local HTML fixtures and do not contact the live site:
@@ -89,7 +101,7 @@ They cover discovery links and pagination, source-ID deduplication, detail parsi
 
 ## Output behavior and limitations
 
-The workbook has one `Companies` worksheet, a frozen first row, an autofilter, deterministic columns, readable widths, and strings for phones, postal-code text embedded in addresses, capital values, employees, and source identifiers. Values beginning with `=`, `+`, `-`, or `@` receive a spreadsheet-safe leading apostrophe so untrusted source text cannot become a formula.
+The raw workbook has one `Companies` worksheet, a frozen first row, an autofilter, deterministic columns, readable widths, and strings for phones, postal-code text embedded in addresses, capital values, employees, and source identifiers. Values beginning with `=`, `+`, `-`, or `@` receive a spreadsheet-safe leading apostrophe so untrusted source text cannot become a formula.
 
 Phase 1 intentionally stops after the requested small sample. It does not implement full-directory checkpointing, incremental runs, raw snapshots, or CRM-specific transformation. Before scaling, the search criteria and pagination behavior should be revalidated, the TLS certificate should be renewed, and a checkpoint/resume strategy should be added.
 

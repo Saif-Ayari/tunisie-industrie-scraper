@@ -12,3 +12,4 @@ output/*.xlsm
 output/*.xls
 !output/.gitkeep
 state/
+templates/*.xlsx
