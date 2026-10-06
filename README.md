@@ -87,6 +87,12 @@ python scraper.py --limit 10 --insecure-tls --simple-template templates/company.
 
 This writes `output/simple_companies.xlsx` with the exact header row and order read from the supplied template. The exporter maps the inspected SIMPLE compound fields semantically: address components use the source address, delegation, governorate, and an explicitly present four-digit postal code; Tunisian phones use `TN`, `+216`, and a primary number, while each additional phone is a newline-delimited international value such as `+21674 493 691 (TN)`; email and link fields use the importer-compatible newline or label/URL subcolumn formats; and all CRM-managed IDs, owners, actors, timestamps, and LinkedIn fields remain blank. Source IDs remain text, employee counts become numbers only when safely parseable, and Share Capital DT remains text with its source NBSP separators.
 
+Every successful bounded or full-crawl scrape now writes both the raw and SIMPLE workbooks from the same accumulated records. To regenerate both outputs from an existing checkpoint without making HTTP requests, use:
+
+```powershell
+python scraper.py --export-state state/phase4-test
+```
+
 The canonical export is local/ignored because it contains live CRM IDs, owner/creator values, and creation timestamps. `tests/fixtures/simple_company_schema.json` is the sanitized, header-only schema fixture used by the tests.
 
 ## Tests

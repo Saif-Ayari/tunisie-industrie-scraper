@@ -26,6 +26,7 @@ class ScraperConfig:
 
 
 DEFAULT_OUTPUT_PATH = Path("output") / "tunisie_industrie_raw.xlsx"
+DEFAULT_SIMPLE_OUTPUT_PATH = Path("output") / "simple_companies.xlsx"
+DEFAULT_SIMPLE_TEMPLATE_PATH = Path("templates") / "company.xlsx"
 DEFAULT_SEARCH_SECTOR = "05"
 MAX_PHASE1_LIMIT = 100
-
